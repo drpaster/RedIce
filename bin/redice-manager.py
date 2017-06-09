@@ -18,9 +18,20 @@ sys.path.insert(1, path.abspath(path.join(APP_ROOT, "redice")))
 
 from redice import RedIce
 
+def err_report(errors_dict):
+    for cur_e in errors_dict:
+        print('Operation not performed, there are errors:')
+        print('{0:25s}: {1}'.format(cur_e['f'], cur_e['e']))
+    sys.exit(1)
+
+
 def router(args_obj):
     print(args_obj)
     RI = RedIce(args_obj.cmd)
+
+    # Check RedIce Config on Valid
+    if not RI.get_isconfig():
+        err_report(RI.get_errors())
 
     # Route rules
     RoutesRI = {
@@ -31,7 +42,11 @@ def router(args_obj):
     }
     route = '%s_%s'%(args_obj.cmd, args_obj.subcmd)
 
-    RoutesRI[route]['action'](*RoutesRI[route]['args'])
+    # Run command
+    if not RoutesRI[route]['action'](*RoutesRI[route]['args']):
+        err_report(RI.get_errors())
+
+    print('OK')
 
 
 def run():
