@@ -31,7 +31,7 @@ def err_report(errors_dict):
 
 
 def router(args_obj):
-    #print(args_obj)
+    print(args_obj)
     RI = RedIce(args_obj.cmd)
 
     # Check RedIce Config on Valid
@@ -42,15 +42,41 @@ def router(args_obj):
     RoutesRI = {
         'root_reg': {
             'action': RI.reg_root,
-            'args': [args_obj.name, args_obj.file, args_obj.uuid]
+            'args': []
+            },
+        'root_modify': {
+            'action': RI.modify_root,
+            'args': []
+            },
+        'root_remove': {
+            'action': RI.remove_root,
+            'args': []
+            },
+        'shard_add': {
+            'action': RI.add_shard,
+            'args': []
             }
     }
     route = '%s_%s'%(args_obj.cmd, args_obj.subcmd)
+
+    if route == 'root_reg':
+        RoutesRI[route]['args'] = [
+            args_obj.name, args_obj.file, args_obj.uuid]
+    elif route == 'root_modify':
+        RoutesRI[route]['args'] = [
+            args_obj.toobj, args_obj.name, args_obj.file]
+    elif route == 'root_remove':
+        RoutesRI[route]['args'] = [
+            args_obj.toobj, args_obj.with_file]
+    elif route == 'shard_add':
+        RoutesRI[route]['args'] = [
+            args_obj.name, args_obj.group, args_obj.root, args_obj.uuid]
 
     # Run command
     if not RoutesRI[route]['action'](*RoutesRI[route]['args']):
         err_report(RI.get_errors())
 
+    #print(err_report(RI.get_errors()))
     print('OK')
 
 
@@ -130,6 +156,9 @@ def run():
         'toobj', metavar='<root-uuid>|<root-name>',
         action='store',
         help='Remove this root set')
+    commands['root_commands_remove'].add_argument(
+        '--with-file', action='store_true',
+        help='Delete root config file')
 
     # map command
     commands['map_commands'] = commands['map'].add_subparsers(
