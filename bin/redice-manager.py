@@ -48,6 +48,10 @@ def router(args_obj):
             'action': RI.modify_root,
             'args': []
             },
+        'root_list': {
+            'action': RI.list_root,
+            'args': []
+            },
         'root_remove': {
             'action': RI.remove_root,
             'args': []
@@ -61,10 +65,12 @@ def router(args_obj):
 
     if route == 'root_reg':
         RoutesRI[route]['args'] = [
-            args_obj.name, args_obj.file, args_obj.uuid]
+            args_obj.name, args_obj.file, args_obj.default, args_obj.uuid]
     elif route == 'root_modify':
         RoutesRI[route]['args'] = [
-            args_obj.toobj, args_obj.name, args_obj.file]
+            args_obj.toobj, args_obj.name, args_obj.default, args_obj.file]
+    elif route == 'root_list':
+        RoutesRI[route]['args'] = []
     elif route == 'root_remove':
         RoutesRI[route]['args'] = [
             args_obj.toobj, args_obj.with_file]
@@ -134,6 +140,10 @@ def run():
         action='store',
         help='Set root config file')
     commands['root_commands_reg'].add_argument(
+        '--default',
+        action='store_true',
+        help='Set root as default')
+    commands['root_commands_reg'].add_argument(
         '--uuid', metavar='<uuid>', action='store',
         help='Set a manual uuid for new root (optional)')
 
@@ -149,6 +159,11 @@ def run():
     commands['root_commands_modify'].add_argument(
         '--file', metavar='<filename>', action='store',
         help='New root config file')
+    commands['root_commands_modify'].add_argument(
+        '--default',
+        action='store_true',
+        help='Set root as default')
+
 
     commands['root_commands_remove'] = commands['root_commands'].add_parser(
         'remove', help='')
@@ -159,6 +174,10 @@ def run():
     commands['root_commands_remove'].add_argument(
         '--with-file', action='store_true',
         help='Delete root config file')
+
+    commands['root_commands_list'] = commands['root_commands'].add_parser(
+        'list', help='')
+
 
     # map command
     commands['map_commands'] = commands['map'].add_subparsers(

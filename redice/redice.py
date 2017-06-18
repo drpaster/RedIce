@@ -16,10 +16,17 @@ class RedIce():
         self.redice_conf_file = path.join(
             self.redice_conf_path,
             'redice.conf')
+
         self.cur_cmd = cur_cmd
         self.root_conf_sfx = '.conf'
 
         self.config = configparser.ConfigParser()
+
+        self.config['main'] = {
+            'default_root': ''
+        }
+
+
         x = {'uuid': [], 'name': [], 'id': [], 'file': []}
         self.registered_ids = {
             'roots': deepcopy(x),
@@ -47,6 +54,8 @@ class RedIce():
                         self.config[sel]['name'])
                     self.registered_ids['roots']['file'].append(
                         self.config[sel]['file'])
+                #elif sel == 'main':
+                #     self
                 # Todo if root conf file not found then create epty
             return True
 
@@ -150,8 +159,9 @@ class RedIce():
 
     def _get_uuid_by_name(self, config_obj, name):
         for sel in config_obj.sections():
-            if config_obj[sel]['name'] == name:
-                return sel
+            if self._uuid4_validate(sel):
+                if config_obj[sel]['name'] == name:
+                    return sel
         self._errors_reg(
             'UUIDByName',
             'Name %s not found'%(
@@ -184,7 +194,7 @@ class RedIce():
     def get_isconfig(self):
         return self.isconfig
 
-    def reg_root(self, root_name, root_file=None, root_uuid=None):
+    def reg_root(self, root_name, root_file=None, set_default=False, root_uuid=None):
         # print('New root, Name={0}, ConfFile={1}, UUID={2}'.format(
         #     root_name, root_file, root_uuid))
 
@@ -206,8 +216,13 @@ class RedIce():
         if root_file:
             results_list.append(self._ids_ishas('roots', 'file', root_file))
 
+        # if root_uuid in self.registered_ids['roots']['uuid']:
+
         #print('ERRORS: ', results_list)
         if not False in results_list:
+            if set_default or len(self.registered_ids['roots']['uuid']) == 0:
+                self.config['main']['default_root'] = root_uuid
+
             # create root conf file if not found
             # if no err then:
             self.config[root_uuid] = {
@@ -220,7 +235,7 @@ class RedIce():
             return False
 
 
-    def modify_root(self, obj, root_name=None, root_file=None):
+    def modify_root(self, obj, root_name=None, set_default=False, root_file=None):
 
         results_list = []
         root_uuid = self._identify_uuid('roots', obj)
@@ -229,7 +244,7 @@ class RedIce():
             return False
 
         # Check new values
-        if not True in [bool(root_name), bool(root_file)]:
+        if not True in [bool(root_name), bool(root_file), set_default]:
             self._errors_reg(
                 'ModifyRoot',
                 'Not specified what to change in root: %s'%(
@@ -256,10 +271,25 @@ class RedIce():
             if bool(root_name):
                 self.config[root_uuid]['name'] = root_name
 
+            if set_default:
+                self.config['main']['default_root'] = root_uuid
+
             self._conf_exists(root_file)
             return self._write_redice_config()
         else:
             return False
+
+
+    def list_root(self):
+        for uuid in self.registered_ids['roots']['uuid']:
+            star = ''
+            if uuid == self.config['main']['default_root']:
+                star = '* '
+            print('{0:2s}{1:25s} {2}'.format(
+                star,
+                self.config[uuid]['name'],
+                uuid))
+        return True
 
     def remove_root(self, obj, with_file):
 
