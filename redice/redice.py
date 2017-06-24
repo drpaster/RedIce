@@ -21,24 +21,28 @@ class RedIce():
         self.root_conf_sfx = '.conf'
 
         self.config = configparser.ConfigParser()
+        self.config_root = configparser.ConfigParser()
 
         self.config['main'] = {
             'default_root': ''
         }
 
-
-        x = {'uuid': [], 'name': [], 'id': [], 'file': []}
+        redice_x = {'uuid': [], 'name': [], 'id': [], 'file': []}
+        sentinel_x = {'uuid': [], 'name': [], 'server': []}
         self.registered_ids = {
-            'roots': deepcopy(x),
-            'maps': deepcopy(x),
-            'shards': deepcopy(x),
-            'servers': deepcopy(x)
+            'roots': deepcopy(redice_x),
+            'sentinels': deepcopy(sentinel_x)
         }
+
         self.isconfig = self._read_redice_config()
+        self.isrootconfig = self._read_root_config(
+            self.config['main']['default_root']
+        )
 
     def _errors_reg(self, err_name, err_desc):
         self.registered_errors.append(
             {'name': err_name, 'desc': err_desc})
+
 
     def _read_redice_config(self):
         try:
@@ -54,6 +58,10 @@ class RedIce():
                         self.config[sel]['name'])
                     self.registered_ids['roots']['file'].append(
                         self.config[sel]['file'])
+            if not self._uuid4_validate(self.config['main']['default_root']) and \
+            len(self.registered_ids['roots']['uuid']) >= 1:
+                self.config['main'] = self.registered_ids['roots']['uuid'][0]
+
                 #elif sel == 'main':
                 #     self
                 # Todo if root conf file not found then create epty
@@ -70,10 +78,30 @@ class RedIce():
             return True
 
     def _read_root_config(self, root_uuid):
-        pass
+        try:
+            self.config_root.read(self.config[root_uuid]['file'])
+        except Exception as e:
+            self._errors_reg('ReadRootConfig', e)
+            return False
+        else:
+            for sel in self.config_root.sections():
+                if self._uuid4_validate(sel):
+                    self.registered_ids['sentinels']['uuid'].append(sel)
+                    self.registered_ids['sentinels']['name'].append(
+                        self.config_root[sel]['name'])
+                    self.registered_ids['sentinels']['server'].append(
+                        self.config_root[sel]['server'])
+            return True
 
     def _write_root_config(self, root_uuid):
-        pass
+        try:
+            with open(self.config[root_uuid]['file'], 'w') as configfile:
+                self.config_root.write(configfile)
+        except Exception as e:
+            self._errors_reg('WriteRootConfig', e)
+            return False
+        else:
+            return True
 
     def _ids_ishas(self, ids_class, ids_type, ids_value, expect=False):
         result_check = False
@@ -172,6 +200,8 @@ class RedIce():
     def _identify_uuid(self, ids_class, ids_value):
         if ids_class == 'roots':
             conf_obj = self.config
+        elif ids_class == 'sentinels':
+            conf_obj = self.config_root
         # ToDo elif|else 'shards, maps, servers'
 
         ids_type = self._uuid4_or_name(ids_value)
@@ -180,6 +210,8 @@ class RedIce():
             uuid = ids_value
         elif ids_type == 'name':
             uuid = self._get_uuid_by_name(conf_obj, ids_value)
+        else:
+            return None
 
         if uuid:
             if self._ids_ishas(ids_class, 'uuid', uuid, True):
@@ -187,6 +219,8 @@ class RedIce():
         else:
             return None
 
+    def _errors_flush(self):
+        self.registered_errors = []
 
     def get_errors(self):
         return self.registered_errors
@@ -195,9 +229,6 @@ class RedIce():
         return self.isconfig
 
     def reg_root(self, root_name, root_file=None, set_default=False, root_uuid=None):
-        # print('New root, Name={0}, ConfFile={1}, UUID={2}'.format(
-        #     root_name, root_file, root_uuid))
-
         results_list = []
 
         if root_file is None:
@@ -208,7 +239,6 @@ class RedIce():
         if root_uuid is None:
             root_uuid=str(uuid.uuid4())
 
-        #print('FILE: ', self.redice_conf_file)
         results_list.append(self._uuid4_validate(root_uuid))
         results_list.append(self._ids_ishas('roots', 'uuid', root_uuid))
         results_list.append(self._name_validate(root_name))
@@ -216,9 +246,6 @@ class RedIce():
         if root_file:
             results_list.append(self._ids_ishas('roots', 'file', root_file))
 
-        # if root_uuid in self.registered_ids['roots']['uuid']:
-
-        #print('ERRORS: ', results_list)
         if not False in results_list:
             if set_default or len(self.registered_ids['roots']['uuid']) == 0:
                 self.config['main']['default_root'] = root_uuid
@@ -294,17 +321,11 @@ class RedIce():
     def remove_root(self, obj, with_file):
 
         root_uuid = self._identify_uuid('roots', obj)
-        # print('Cur root: ', root_uuid)
-        # return False
-
         if not root_uuid:
             return False
 
         root_file = self.config[root_uuid]['file']
-        #print('CONF: ', self.config.sections())
         del self.config[root_uuid]
-        #print('ROOT FILE: ', root_file)
-        #print('CONF: ', self.config.sections())
         if self._write_redice_config():
             if with_file:
                 try:
@@ -318,7 +339,80 @@ class RedIce():
         else:
             return False
 
+    def addsentinel_root(self, sentinel_name, sentinel_server, sentinel_uuid=None):
+        self._errors_flush()
+        results_list = []
+
+        if sentinel_uuid is None:
+            sentinel_uuid=str(uuid.uuid4())
+
+        results_list.append(self._uuid4_validate(self.config['main']['default_root']))
+        #print('FILE: ', self.redice_conf_file)
+        results_list.append(self._uuid4_validate(sentinel_uuid))
+        results_list.append(self._ids_ishas(
+            'sentinels', 'uuid', sentinel_uuid))
+        results_list.append(self._name_validate(sentinel_name))
+        results_list.append(self._ids_ishas(
+            'sentinels', 'name', sentinel_name))
+        if sentinel_server:
+            results_list.append(self._ids_ishas(
+                'sentinels', 'server', sentinel_server))
+
+        print(self.registered_ids['sentinels']['name'])
+        # if root_uuid in self.registered_ids['roots']['uuid']:
+
+        print('ERRORS: ', results_list)
+        if not False in results_list:
+            self.config_root[sentinel_uuid] = {
+                'name': sentinel_name,
+                'server': sentinel_server
+            }
+            return self._write_root_config(self.config['main']['default_root'])
+        else:
+            return False
+
+
+    def modifysentinel_root(self, obj, sentinel_name, sentinel_server):
+        results_list = []
+        sentinel_uuid = self._identify_uuid('sentinels', obj)
+
+        if not sentinel_uuid:
+            return False
+        # Check new values
+        if not True in [bool(sentinel_name), bool(sentinel_server)]:
+            self._errors_reg(
+                'ModifySentinel',
+                'Not specified what to change in sentinel: %s'%(
+                    obj))
+            return False
+
+        if bool(sentinel_name) and self.config_root[sentinel_uuid]['name'] != sentinel_name:
+            results_list.append(self._name_validate(sentinel_name))
+            results_list.append(self._ids_ishas('sentinels', 'name', sentinel_name))
+            self.config_root[sentinel_uuid]['name'] = sentinel_name
+
+        if bool(sentinel_server) and self.config_root[sentinel_uuid]['server'] != sentinel_server:
+            results_list.append(self._ids_ishas('sentinels', 'server', sentinel_server))
+            self.config_root[sentinel_uuid]['server'] = sentinel_server
+
+        if not False in results_list:
+            self._conf_exists(
+                self.config[self.config['main']['default_root']]['file']
+                )
+            return self._write_root_config(self.config['main']['default_root'])
+        else:
+            return False
+
+
+
+    def removesentinel_root(self, obj):
+        sentinel_uuid = self._identify_uuid('sentinels', obj)
+        if not sentinel_uuid:
+            return False
+        del self.config_root[sentinel_uuid]
+        return self._write_root_config(self.config['main']['default_root'])
+
     def add_shard(self, name, group=None, uuid=None, root=False):
-        print('New Shard: name={0}, group={1}, uuid={2}, root={3}'.format(
-            name, group, uuid, root
+        print('New Shard: name={0}, group={1}, uuid={2}, root={3}, default_root={4}'.format(
+            name, group, root, uuid, self.config['main']['default_root']
         ))

@@ -56,6 +56,18 @@ def router(args_obj):
             'action': RI.remove_root,
             'args': []
             },
+        'root_addsentinel': {
+            'action': RI.addsentinel_root,
+            'args': []
+            },
+        'root_modifysentinel': {
+            'action': RI.modifysentinel_root,
+            'args': []
+            },
+        'root_removesentinel': {
+            'action': RI.removesentinel_root,
+            'args': []
+            },
         'shard_add': {
             'action': RI.add_shard,
             'args': []
@@ -74,6 +86,14 @@ def router(args_obj):
     elif route == 'root_remove':
         RoutesRI[route]['args'] = [
             args_obj.toobj, args_obj.with_file]
+    elif route == 'root_addsentinel':
+        RoutesRI[route]['args'] = [
+            args_obj.name, args_obj.server_address, args_obj.uuid]
+    elif route == 'root_modifysentinel':
+        RoutesRI[route]['args'] = [
+            args_obj.toobj, args_obj.name, args_obj.server_address]
+    elif route == 'root_removesentinel':
+        RoutesRI[route]['args'] = [args_obj.toobj]
     elif route == 'shard_add':
         RoutesRI[route]['args'] = [
             args_obj.name, args_obj.group, args_obj.root, args_obj.uuid]
@@ -178,6 +198,43 @@ def run():
     commands['root_commands_list'] = commands['root_commands'].add_parser(
         'list', help='')
 
+    commands['root_commands_addsentinel'] = commands['root_commands'].add_parser(
+        'addsentinel', help='')
+    commands['root_commands_addsentinel'].add_argument(
+        '--name', metavar='<sentinel-name>',
+        action='store', required=True,
+        help='Set sentinel server name')
+    commands['root_commands_addsentinel'].add_argument(
+        '--server-address', metavar='<host:port>',
+        action='store', required=True,
+        help='Set sentinel server address')
+    commands['root_commands_addsentinel'].add_argument(
+        '--uuid', metavar='<uuid>', action='store',
+        help='Set a manual uuid for new sentinel server (optional)')
+
+    commands['root_commands_modifysentinel'] = commands['root_commands'].add_parser(
+        'modifysentinel', help='')
+    commands['root_commands_modifysentinel'].add_argument(
+        'toobj', metavar='<sentinel-uuid>|<sentinel-name>',
+        action='store',
+        help='')
+    commands['root_commands_modifysentinel'].add_argument(
+        '--name', metavar='<sentinel-name>',
+        action='store',
+        help='Set sentinel server name')
+    commands['root_commands_modifysentinel'].add_argument(
+        '--server-address', metavar='<host:port>',
+        action='store',
+        help='Set sentinel server address')
+
+    commands['root_commands_removesentinel'] = commands['root_commands'].add_parser(
+        'removesentinel', help='')
+    commands['root_commands_removesentinel'].add_argument(
+        'toobj', metavar='<sentinel-uuid>|<sentinel-name>',
+        action='store',
+        help='')
+
+
 
     # map command
     commands['map_commands'] = commands['map'].add_subparsers(
@@ -250,9 +307,9 @@ def run():
         action='store',
         help='')
     commands['shard_commands_add'].add_argument(
-        '--root', metavar='<root-uuid>|<root-name>',
-        action='store',
-        help='')
+        '--root',
+        action='store_true',
+        help='Add shard to current root (default)')
     commands['shard_commands_add'].add_argument(
         '--uuid', metavar='<shard-uuid>',
         action='store',
