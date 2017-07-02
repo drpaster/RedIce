@@ -1,0 +1,49 @@
+pidfile /var/run/redis-production/myapp.redice.root.1.7101.pid
+daemonize yes
+
+port 7101
+bind 127.0.0.1
+
+#tcp-backlog 32
+timeout 0
+tcp-keepalive 60
+
+loglevel notice
+logfile /var/log/redis/myapp.redice.root.1.7101.log
+
+databases 1
+
+rdbcompression yes
+rdbchecksum no
+dir /var/lib/redis/myapp
+dbfilename myapp.redice.root.1.7101.dump.rdb
+
+slaveof 10.0.0.8 7181
+slave-serve-stale-data yes
+
+repl-diskless-sync no
+repl-diskless-sync-delay 5
+repl-ping-slave-period 3
+repl-timeout 10
+repl-disable-tcp-nodelay yes
+
+repl-backlog-size 1mb
+repl-backlog-ttl 900
+
+slave-priority 0
+min-slaves-to-write 1
+min-slaves-max-lag 3
+
+maxclients 64
+maxmemory 5mb
+maxmemory-policy noeviction
+maxmemory-samples 1
+
+lua-time-limit 3000
+slowlog-log-slower-than 3000
+slowlog-max-len 128
+
+latency-monitor-threshold 0
+
+activerehashing no
+hz 10

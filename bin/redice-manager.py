@@ -16,6 +16,7 @@ if (sys.version_info[0:-2] < ( 3,4,0 )):
 APP_ROOT = path.abspath(path.join(HPATH, path.pardir))
 sys.path.insert(1, path.abspath(path.join(APP_ROOT, "redice")))
 
+from roots import Roots
 from redice import RedIce
 
 def err_report(errors_dict):
@@ -29,78 +30,117 @@ def err_report(errors_dict):
             '%d.'%(i), cur_e['name'], cur_e['desc']))
     sys.exit(1)
 
+# def close_conn(obj):
+#     obj.close_conn()
 
 def router(args_obj):
     print(args_obj)
-    RI = RedIce(args_obj.cmd)
+    #RedIce Roots
+    RR = Roots(args_obj.cmd)
 
+    #RedIce Shards
+    RS = RedIce()
+
+    #if args_obj.cmd == 'root':?
     # Check RedIce Config on Valid
-    if not RI.get_isconfig():
-        err_report(RI.get_errors())
+    if not RR.get_isconfig():
+        err_report(RR.get_errors())
+
+    # Check connection for commands needed to Redis
+    if args_obj.cmd in ['map', 'shard']:
+        if not RS.connect(RR.get_sentinels(), RR.get_default_root_name()):
+            err_report(RS.get_errors())
 
     # Route rules
-    RoutesRI = {
+    Routes = {
         'root_reg': {
-            'action': RI.reg_root,
+            'action': RR.reg_root,
+            'err': RR.get_errors,
             'args': []
             },
         'root_modify': {
-            'action': RI.modify_root,
+            'action': RR.modify_root,
+            'err': RR.get_errors,
             'args': []
             },
         'root_list': {
-            'action': RI.list_root,
+            'action': RR.list_root,
+            'err': RR.get_errors,
             'args': []
             },
         'root_remove': {
-            'action': RI.remove_root,
+            'action': RR.remove_root,
+            'err': RR.get_errors,
             'args': []
             },
         'root_addsentinel': {
-            'action': RI.addsentinel_root,
+            'action': RR.addsentinel_root,
+            'err': RR.get_errors,
             'args': []
             },
         'root_modifysentinel': {
-            'action': RI.modifysentinel_root,
+            'action': RR.modifysentinel_root,
+            'err': RR.get_errors,
             'args': []
             },
         'root_removesentinel': {
-            'action': RI.removesentinel_root,
+            'action': RR.removesentinel_root,
+            'err': RR.get_errors,
             'args': []
             },
-        'shard_add': {
-            'action': RI.add_shard,
+        'root_listsentinels': {
+            'action': RR.listsentinels_root,
+            'err': RR.get_errors,
+            'args': []
+            },
+        'map_create': {
+            'action': RS.create_map,
+            'err': RS.get_errors,
+            'args': []
+            },
+        'map_modify': {
+            'action': RS.modify_map,
+            'err': RS.get_errors,
             'args': []
             }
     }
     route = '%s_%s'%(args_obj.cmd, args_obj.subcmd)
 
     if route == 'root_reg':
-        RoutesRI[route]['args'] = [
+        Routes[route]['args'] = [
             args_obj.name, args_obj.file, args_obj.default, args_obj.uuid]
     elif route == 'root_modify':
-        RoutesRI[route]['args'] = [
+        Routes[route]['args'] = [
             args_obj.toobj, args_obj.name, args_obj.default, args_obj.file]
     elif route == 'root_list':
-        RoutesRI[route]['args'] = []
+        Routes[route]['args'] = []
     elif route == 'root_remove':
-        RoutesRI[route]['args'] = [
+        Routes[route]['args'] = [
             args_obj.toobj, args_obj.with_file]
     elif route == 'root_addsentinel':
-        RoutesRI[route]['args'] = [
+        Routes[route]['args'] = [
             args_obj.name, args_obj.server_address, args_obj.uuid]
     elif route == 'root_modifysentinel':
-        RoutesRI[route]['args'] = [
+        Routes[route]['args'] = [
             args_obj.toobj, args_obj.name, args_obj.server_address]
     elif route == 'root_removesentinel':
-        RoutesRI[route]['args'] = [args_obj.toobj]
-    elif route == 'shard_add':
-        RoutesRI[route]['args'] = [
-            args_obj.name, args_obj.group, args_obj.root, args_obj.uuid]
+        Routes[route]['args'] = [args_obj.toobj]
+    elif route == 'root_listsentinels':
+        Routes[route]['args'] = []
+    elif route == 'map_create':
+        Routes[route]['args'] = [
+            args_obj.name, args_obj.size, args_obj.blocks, args_obj.uuid]
+    elif route == 'map_modify':
+        Routes[route]['args'] = [
+            args_obj.toobj, args_obj.name]
+
 
     # Run command
-    if not RoutesRI[route]['action'](*RoutesRI[route]['args']):
-        err_report(RI.get_errors())
+    if not Routes[route]['action'](*Routes[route]['args']):
+        err_report(Routes[route]['err']())
+
+    # if args_obj.cmd in ['map', 'shard']:
+    #     close_conn(RS)
 
     #print(err_report(RI.get_errors()))
     print('OK')
@@ -234,7 +274,8 @@ def run():
         action='store',
         help='')
 
-
+    commands['root_commands_listsentinels'] = commands['root_commands'].add_parser(
+        'listsentinels', help='')
 
     # map command
     commands['map_commands'] = commands['map'].add_subparsers(
@@ -247,6 +288,11 @@ def run():
         '--name', metavar='<map-name>',
         action='store', required=True,
         help='')
+    commands['map_commands_create'].add_argument(
+        '--size', metavar='<1-5>',
+        type=int, choices=[1,2,3,4,5], required=True,
+        help='Set size shard map. Selected number determines max slots count.\n \
+        1=16, 2=256, 3=4096, 4=16384, 5=65536')
     commands['map_commands_create'].add_argument(
         '--blocks', metavar='<number>',
         type=int, action='store', required=True,
@@ -272,7 +318,7 @@ def run():
         help='')
     commands['map_commands_modify'].add_argument(
         '--name', metavar='<map-name>',
-        action='store', required=True,
+        action='store',
         help='')
 
     commands['map_commands_list'] = commands['map_commands'].add_parser(
