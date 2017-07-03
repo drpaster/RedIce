@@ -100,6 +100,18 @@ class RedIce():
         else:
             return None
 
+    def _redis_connect(self, timeout_factor=1):
+        try:
+            self.redis_conn = self.sentinel_conn.master_for(
+                self._get_cluster_name(),
+                socket_timeout=self.SOCK_TIMEOUT*float(timeout_factor))
+            return True
+        except Exception as e:
+            self.redice_errors.error_reg(
+                'RedisConnection: %s'%(e))
+        return True
+
+
     def get_shard_map(self, map_name):
         r = {}
         hashmap = self.redis_conn.hgetall(
@@ -110,6 +122,17 @@ class RedIce():
             return r
         else:
             return None
+
+    #API
+    def get_map_info(self, map_uuid):
+        results_list = []
+
+        meta_info = self._get_meta_by_uuid('maps', map_uuid)
+        # results_list.append(bool(meta_info))
+        #
+        # if not False in results_list:
+        return meta_info
+
 
     def get_keys_for_q(self, q_str):
         keys = []
@@ -139,9 +162,10 @@ class RedIce():
                 s_list = self.sentinel_conn.discover_slaves(
                     self._get_cluster_name())
 
-                self.redis_conn = self.sentinel_conn.master_for(
-                    self._get_cluster_name(),
-                    socket_timeout=self.SOCK_TIMEOUT)
+                self._redis_connect()
+                # self.redis_conn = self.sentinel_conn.master_for(
+                #     self._get_cluster_name(),
+                #     socket_timeout=self.SOCK_TIMEOUT)
 
                 print('masters: ', m_list)
                 print('slaves: ', s_list)
@@ -172,8 +196,7 @@ class RedIce():
 
         # check name unique
         results_list.append(self._key_is_has('maps', 'name', map_name))
-        # print('CHECK: ', results_list)
-        #return False
+
         if False in results_list:
             return False
 
@@ -183,14 +206,17 @@ class RedIce():
                 'map_blocks=%d: but must be between 1 to %d, for map_size=%d(%d slots)'%(
                     map_blocks, max_slots, map_size, max_slots))
             return False
-        # print(max_slots)
 
         cur_map = {
             'name': map_name,
             'slots': max_slots,
             'blocks': map_blocks,
-            'uuid': map_uuid
+            'uuid': map_uuid,
+            'size': map_size
             }
+
+        if not self._redis_connect(map_size):
+            return False
 
         pipe = self.redis_conn.pipeline()
         shard_num = 1
@@ -254,11 +280,7 @@ class RedIce():
                 'CreateMap',
                 'Create map name transaction error: %s'%(e))
 
-        # 'redice:reg:shards:{num}'
-        # print('New map: name: {0}, size: {1:d}, blocks: {2:d}, uuid: {3}'.format(
-        #     map_name, map_size, int(map_blocks), map_uuid))
-        # print('Slots: ', max_slots)
-        # return False
+        return False
 
     def modify_map(self, obj, map_name):
         results_list = []
@@ -278,6 +300,9 @@ class RedIce():
 
         # Check all keys
         meta_info = self._get_meta_by_uuid('maps', map_uuid)
+
+        if not self._redis_connect(meta_info['size']):
+            return False
 
         results_list.append(bool(meta_info))
 
@@ -323,7 +348,7 @@ class RedIce():
                 if False in q_res:
                     self.redice_errors.error_reg(
                         'ModifyMap',
-                        'Change map name transaction not completed: %s'%(
+                        'Change map transaction not completed: %s'%(
                             q_res))
                     return False
                 else:
@@ -332,9 +357,93 @@ class RedIce():
             except Exception as e:
                 self.redice_errors.error_reg(
                     'ModifyMap',
-                    'Change map name transaction error: %s'%(
+                    'Change map transaction error: %s'%(
                         e))
         return False
+
+
+    def delete_map(self, obj):
+        results_list = []
+        map_uuid = self._identify_uuid('maps', obj)
+
+        if not map_uuid:
+            return False
+
+        meta_info = self._get_meta_by_uuid('maps', map_uuid)
+        results_list.append(bool(meta_info))
+
+        if not self._redis_connect(meta_info['size']):
+            return False
+
+        if not False in results_list:
+
+            pipe = self.redis_conn.pipeline()
+
+            pipe.delete(
+                '%s:maps:%s:hashsmaps'%(
+                    self._get_cluster_name(), meta_info['name']))
+
+            for sh_num in self.get_keys_for_q(
+                '%s:maps:%s:blocks:*'%(self._get_cluster_name(), meta_info['name'])):
+                pipe.delete(sh_num)
+
+
+            pipe.delete(
+                '%s:registry:maps:name:%s'%(self._get_cluster_name(),
+                                            meta_info['name']))
+
+            pipe.delete(
+                '%s:registry:maps:uuid:%s'%(self._get_cluster_name(), map_uuid))
+
+            try:
+                q_res = pipe.execute()
+                if False in q_res:
+                    self.redice_errors.error_reg(
+                        'DeleteMap',
+                        'Delete map transaction not completed: %s'%(
+                            q_res))
+                    return False
+                else:
+                    return True
+
+            except Exception as e:
+                self.redice_errors.error_reg(
+                    'DeleteMap',
+                    'Delete map transaction error: %s'%(
+                        e))
+
+        return False
+
+    def info_map(self, obj, short=False):
+        results_list = []
+        map_uuid = self._identify_uuid('maps', obj)
+        info_map = self.get_map_info(map_uuid)
+        if info_map:
+            if short:
+                print('Hash map: name=%s uuid=%s slots=%d blocks=%d'%(
+                    info_map['name'], info_map['uuid'],
+                    info_map['slots'], info_map['blocks']
+                ))
+            else:
+                print('Hash map {%s} info:'%(info_map['uuid']))
+                print('\nGeneral:')
+                print('{0:12s}{1}'.format('Name:', info_map['name']))
+                print('{0:12s}{1}'.format('UUID:', info_map['uuid']))
+                print('\nOptions:')
+                print('{0:12s}{1:6s}'.format(
+                    'Map size:', 'Type %d (%d Slots)'%(
+                            info_map['size'], info_map['slots'])))
+                print('{0:12s}{1}'.format('Blocks:', info_map['blocks']))
+                #Todo summary etc slots to block, min block size, max block size
+                # print('\nSummary:')
+
+            return True
+        else:
+            self.redice_errors.error_reg(
+                'MapInfo',
+                'Map info not assigned to %s'%(
+                    obj))
+            return False
 
 
     def _test(self):

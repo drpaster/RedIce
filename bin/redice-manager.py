@@ -53,6 +53,11 @@ def router(args_obj):
 
     # Route rules
     Routes = {
+        'list_roots': {
+            'action': RR.roots_list,
+            'err': RR.get_errors,
+            'args': []
+            },
         'root_reg': {
             'action': RR.reg_root,
             'err': RR.get_errors,
@@ -60,11 +65,6 @@ def router(args_obj):
             },
         'root_modify': {
             'action': RR.modify_root,
-            'err': RR.get_errors,
-            'args': []
-            },
-        'root_list': {
-            'action': RR.list_root,
             'err': RR.get_errors,
             'args': []
             },
@@ -102,18 +102,29 @@ def router(args_obj):
             'action': RS.modify_map,
             'err': RS.get_errors,
             'args': []
+            },
+        'map_delete': {
+            'action': RS.delete_map,
+            'err': RS.get_errors,
+            'args': []
+            },
+        'map_info': {
+            'action': RS.info_map,
+            'err': RS.get_errors,
+            'args': []
             }
+
     }
     route = '%s_%s'%(args_obj.cmd, args_obj.subcmd)
 
-    if route == 'root_reg':
+    if route == 'list_roots':
+        Routes[route]['args'] = []
+    elif route == 'root_reg':
         Routes[route]['args'] = [
             args_obj.name, args_obj.file, args_obj.default, args_obj.uuid]
     elif route == 'root_modify':
         Routes[route]['args'] = [
             args_obj.toobj, args_obj.name, args_obj.default, args_obj.file]
-    elif route == 'root_list':
-        Routes[route]['args'] = []
     elif route == 'root_remove':
         Routes[route]['args'] = [
             args_obj.toobj, args_obj.with_file]
@@ -133,7 +144,10 @@ def router(args_obj):
     elif route == 'map_modify':
         Routes[route]['args'] = [
             args_obj.toobj, args_obj.name]
-
+    elif route == 'map_delete':
+        Routes[route]['args'] = [args_obj.toobj]
+    elif route == 'map_info':
+        Routes[route]['args'] = [args_obj.toobj, args_obj.short]
 
     # Run command
     if not Routes[route]['action'](*Routes[route]['args']):
@@ -177,10 +191,19 @@ def run():
     commands['map'] = subparsers.add_parser('map', help='')
     commands['shard'] = subparsers.add_parser('shard', help='')
 
-    # Two level commands
+
     commands['list'].add_argument('-s', '--short', action='store_true', help='')
-    commands['list'].add_argument(
-        'obj', choices=['roots', 'maps', 'shards'])
+
+    # Two level commands
+    commands['list_commands'] = commands['list'].add_subparsers(
+        dest='subcmd', help='')
+    commands['list_commands_roots'] = commands['list_commands'].add_parser(
+        'roots', help='')
+
+
+    # commands['list_commands'].add_argument('-s', '--short', action='store_true', help='')
+    # commands['list'].add_argument(
+    #     'obj', choices=['roots', 'maps', 'shards'])
 
     commands['check'].add_argument(
         'obj', choices=['roots', 'maps', 'shards'])
@@ -321,13 +344,13 @@ def run():
         action='store',
         help='')
 
-    commands['map_commands_list'] = commands['map_commands'].add_parser(
-        'list', help='')
-    commands['map_commands_list'].add_argument(
+    commands['map_commands_info'] = commands['map_commands'].add_parser(
+        'info', help='')
+    commands['map_commands_info'].add_argument(
         'toobj', metavar='<map-uuid>|<map-name>',
         action='store',
         help='')
-    commands['map_commands_list'].add_argument(
+    commands['map_commands_info'].add_argument(
         '-s', '--short', action='store_true', help='')
 
     commands['map_commands_delete'] = commands['map_commands'].add_parser(

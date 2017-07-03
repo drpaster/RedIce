@@ -274,8 +274,7 @@ class Roots():
         else:
             return False
 
-
-    def list_root(self):
+    def roots_list(self):
         for uuid in self.registered_ids['roots']['uuid']:
             star = ''
             if uuid == self.config['main']['default_root']:
