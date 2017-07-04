@@ -47,7 +47,7 @@ def router(args_obj):
         err_report(RR.get_errors())
 
     # Check connection for commands needed to Redis
-    if args_obj.cmd in ['map', 'shard']:
+    if args_obj.cmd in ['list', 'map', 'shard']:
         if not RS.connect(RR.get_sentinels(), RR.get_default_root_name()):
             err_report(RS.get_errors())
 
@@ -56,6 +56,11 @@ def router(args_obj):
         'list_roots': {
             'action': RR.roots_list,
             'err': RR.get_errors,
+            'args': []
+            },
+        'list_maps': {
+            'action': RS.maps_list,
+            'err': RS.get_errors,
             'args': []
             },
         'root_reg': {
@@ -93,6 +98,11 @@ def router(args_obj):
             'err': RR.get_errors,
             'args': []
             },
+        'root_info': {
+            'action': RR.info_root,
+            'err': RR.get_errors,
+            'args': []
+            },
         'map_create': {
             'action': RS.create_map,
             'err': RS.get_errors,
@@ -118,7 +128,9 @@ def router(args_obj):
     route = '%s_%s'%(args_obj.cmd, args_obj.subcmd)
 
     if route == 'list_roots':
-        Routes[route]['args'] = []
+        Routes[route]['args'] = [args_obj.short]
+    if route == 'list_maps':
+        Routes[route]['args'] = [args_obj.short]
     elif route == 'root_reg':
         Routes[route]['args'] = [
             args_obj.name, args_obj.file, args_obj.default, args_obj.uuid]
@@ -138,6 +150,8 @@ def router(args_obj):
         Routes[route]['args'] = [args_obj.toobj]
     elif route == 'root_listsentinels':
         Routes[route]['args'] = []
+    elif route == 'root_info':
+        Routes[route]['args'] = [args_obj.toobj, args_obj.short]
     elif route == 'map_create':
         Routes[route]['args'] = [
             args_obj.name, args_obj.size, args_obj.blocks, args_obj.uuid]
@@ -199,7 +213,8 @@ def run():
         dest='subcmd', help='')
     commands['list_commands_roots'] = commands['list_commands'].add_parser(
         'roots', help='')
-
+    commands['list_commands_maps'] = commands['list_commands'].add_parser(
+        'maps', help='')
 
     # commands['list_commands'].add_argument('-s', '--short', action='store_true', help='')
     # commands['list'].add_argument(
@@ -258,8 +273,18 @@ def run():
         '--with-file', action='store_true',
         help='Delete root config file')
 
-    commands['root_commands_list'] = commands['root_commands'].add_parser(
-        'list', help='')
+    # commands['root_commands_list'] = commands['root_commands'].add_parser(
+    #     'list', help='')
+
+    commands['root_commands_info'] = commands['root_commands'].add_parser(
+        'info', help='')
+    commands['root_commands_info'].add_argument(
+        'toobj', metavar='<root-uuid>|<root-name>',
+        action='store',
+        help='')
+    commands['root_commands_info'].add_argument(
+        '-s', '--short', action='store_true', help='')
+
 
     commands['root_commands_addsentinel'] = commands['root_commands'].add_parser(
         'addsentinel', help='')

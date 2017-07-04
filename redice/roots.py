@@ -20,11 +20,11 @@ class Roots():
             self.redice_conf_path,
             'redice.conf')
 
+        # cur_cmd use?
         self.cur_cmd = cur_cmd
         self.root_conf_sfx = '.conf'
 
         self.config = configparser.ConfigParser()
-        self.config_root = configparser.ConfigParser()
 
         self.config['main'] = {
             'default_root': ''
@@ -37,10 +37,17 @@ class Roots():
             'sentinels': deepcopy(sentinel_x)
         }
 
+        self.sentinels_list = []
+
+
         self.isconfig = self._read_redice_config()
-        self.isrootconfig = self._read_root_config(
-            self.config['main']['default_root']
-        )
+        self.config_root = self._read_root_config(
+            self.config['main']['default_root'])
+        self.isrootconfig = self._registered_root_ids()
+        # self.isrootconfig = self._read_root_config(
+        #     self.config['main']['default_root']
+        # )
+
 
     def _read_redice_config(self):
         try:
@@ -76,13 +83,33 @@ class Roots():
             return True
 
     def _read_root_config(self, root_uuid):
+        config_root = configparser.ConfigParser()
         try:
-            self.config_root.read(self.config[root_uuid]['file'])
+            config_root.read(self.config[root_uuid]['file'])
+            return config_root
         except Exception as e:
             self.redice_errors.error_reg('ReadRootConfig', e)
-            return False
-        else:
-            for sel in self.config_root.sections():
+            return None
+
+    # def _get_root_config(self, root_uuid):
+    #     sections = self._read_root_config(root_uuid)
+    #     if sections:
+    #         for sel in sections:
+    #             if self.redice_shared.uuid4_validate(sel):
+    #                 self.registered_ids['sentinels']['uuid'].append(sel)
+    #                 self.registered_ids['sentinels']['name'].append(
+    #                     self.config_root[sel]['name'])
+    #                 self.registered_ids['sentinels']['server'].append(
+    #                     self.config_root[sel]['server'])
+    #         return True
+    #     else:
+    #         return False
+
+    # def _read_root_config(self, root_uuid):
+    def _registered_root_ids(self):
+        sections = self.config_root.sections()
+        if sections:
+            for sel in sections:
                 if self.redice_shared.uuid4_validate(sel):
                     self.registered_ids['sentinels']['uuid'].append(sel)
                     self.registered_ids['sentinels']['name'].append(
@@ -90,6 +117,9 @@ class Roots():
                     self.registered_ids['sentinels']['server'].append(
                         self.config_root[sel]['server'])
             return True
+        else:
+            return False
+
 
     def _write_root_config(self, root_uuid):
         try:
@@ -180,6 +210,19 @@ class Roots():
                 return uuid
         else:
             return None
+
+    def _sentinels_print(self, sentinels_list):
+        if sentinels_list:
+            i = 0
+            for sentinel in sentinels_list:
+                i += 1
+                print('{0:3s}{1:18s} {2} {3}'.format(
+                    '%d.'%(i),
+                    sentinel['name'],
+                    sentinel['server'],
+                    sentinel['uuid']))
+        else:
+            print('No registered sentinel server')
 
     def get_errors(self):
         return self.redice_errors.get_errors()
@@ -274,7 +317,7 @@ class Roots():
         else:
             return False
 
-    def roots_list(self):
+    def roots_list(self, short=False):
         for uuid in self.registered_ids['roots']['uuid']:
             star = ''
             if uuid == self.config['main']['default_root']:
@@ -305,6 +348,37 @@ class Roots():
             return True
         else:
             return False
+
+    def info_root(self, obj, short=False):
+        root_uuid = self._identify_uuid('roots', obj)
+        if root_uuid:
+            star = ' '
+            if root_uuid == self.config['main']['default_root']:
+                star = '*'
+            if short:
+                print('Root: name=%s uuid=%s file=%s default=(%s)'%(
+                    self.config[root_uuid]['name'], root_uuid,
+                    self.config[root_uuid]['file'], star
+                ))
+            else:
+                print('Root name %s%s {%s} info:'%(
+                    star, self.config[root_uuid]['name'], root_uuid))
+                print('\nGeneral:')
+                print('{0:14s}{1}'.format('Name:', self.config[root_uuid]['name']))
+                print('{0:14s}{1}'.format('UUID:', root_uuid))
+                print('{0:14s}{1}'.format('Config file:', self.config[root_uuid]['file']))
+                print('\nSentinels:')
+                self._sentinels_print(
+                    self.get_sentinels(self.config['main']['default_root']))
+                print('\nHash Maps:')
+                # print('{0:12s}{1:6s}'.format(
+                #     'Map size:', 'Type %d (%d Slots)'%(
+                #             info_map['size'], info_map['slots'])))
+                # print('{0:12s}{1}'.format('Blocks:', info_map['blocks']))
+            return True
+        else:
+            return False
+
 
     def addsentinel_root(self, sentinel_name, sentinel_server, sentinel_uuid=None):
         self.redice_errors.errors_flush()
@@ -379,27 +453,26 @@ class Roots():
         return self._write_root_config(self.config['main']['default_root'])
 
     #API func: get sentinels as list for root sets as default
-    def get_sentinels(self):
+    def get_sentinels(self, root_uuid=None):
         sentinels_list = []
-        for sentinel_uuid in self.registered_ids['sentinels']['uuid']:
-            sentinels_list.append(
-                {'uuid': sentinel_uuid,
-                 'name': self.config_root[sentinel_uuid]['name'],
-                 'server': self.config_root[sentinel_uuid]['server']}
-            )
+        if not self.redice_shared.uuid4_validate(root_uuid):
+            root_uuid = self.config['main']['default_root']
+        root_conf = self._read_root_config(root_uuid)
+        # print('SENT: ', self.registered_ids['sentinels']['uuid'])
+        for sel in root_conf.sections():
+            sentinels_list.append({
+                'uuid': sel,
+                'name': root_conf[sel]['name'],
+                'server': root_conf[sel]['server']})
         return sentinels_list
 
+
     def listsentinels_root(self):
-        print('Default root: {0:25s} {1}'.format(
+        print('Default root name: %s {%s}'%(
             self.config[self.config['main']['default_root']]['name'],
-            self.config['main']['default_root']
-        ), '\n\nSentinel servers:')
-        sentinels = self.get_sentinels()
-        if sentinels:
-            for sentinel in sentinels:
-                print('{0:25s} {1}'.format(
-                    sentinel['name'],
-                    sentinel['server']))
-        else:
-            print('No registered sentinel server')
+            self.config['main']['default_root']))
+        print('\nSentinel servers:')
+
+        self._sentinels_print(
+            self.get_sentinels(self.config['main']['default_root']))
         return True

@@ -26,12 +26,12 @@ class RedIceShared():
     def uuid4_validate(self, uuid_str, verbose=True):
         try:
             val = uuid.UUID(uuid_str, version=4)
-        except ValueError:
+        except Exception as e:
             if verbose:
                 self.errors_obj.error_reg(
                     'UUID4Validate',
-                    'UUID %s is not valid'%(
-                        uuid_str))
+                    'UUID %s is not valid: %s'%(
+                        uuid_str, e))
             return False
         else:
             return True

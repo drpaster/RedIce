@@ -111,6 +111,13 @@ class RedIce():
                 'RedisConnection: %s'%(e))
         return True
 
+    def _get_all_maps_uuids(self):
+        maps_list = []
+        for sh_map in self.get_keys_for_q(
+            '%s:registry:maps:name:*'%(self._get_cluster_name())):
+            maps_list.append(
+                self.get_map_info(self.redis_conn.get(sh_map).decode('utf-8')))
+        return maps_list
 
     def get_shard_map(self, map_name):
         r = {}
@@ -126,11 +133,7 @@ class RedIce():
     #API
     def get_map_info(self, map_uuid):
         results_list = []
-
         meta_info = self._get_meta_by_uuid('maps', map_uuid)
-        # results_list.append(bool(meta_info))
-        #
-        # if not False in results_list:
         return meta_info
 
 
@@ -414,29 +417,37 @@ class RedIce():
 
         return False
 
+    def _maps_print(self, maps_list, short):
+        if not maps_list:
+            print('No registered maps for %s'%(self._get_cluster_name()))
+        i = 0
+        for info_map in maps_list:
+            i += 1
+            if short:
+                print('{0:2s} {1} {2} (type={3} ({4} Slots) blocks={5})'.format(
+                    '%d.'%(i),
+                    info_map['uuid'], info_map['name'], info_map['size'],
+                    info_map['slots'], info_map['blocks']
+                ))
+            else:
+                print('\n{0:2s} {1} info:'.format(
+                    '%d.'%(i), 'Hash map {%s}'%(info_map['name'])))
+                print('{0:3s}General:'.format(''))
+                print('{0:4s}{1:12s}{2}'.format('', 'Name:', info_map['name']))
+                print('{0:4s}{1:12s}{2}'.format('', 'UUID:', info_map['uuid']))
+                print('\n{0:3s}Options:'.format(''))
+                print('{0:4s}{1:12s}{2:6s}'.format(
+                    '', 'Map size:', 'Type %d (%d Slots)'%(
+                            info_map['size'], info_map['slots'])))
+                print('{0:4s}{1:12s}{2}'.format('', 'Blocks:', info_map['blocks']))
+
+
     def info_map(self, obj, short=False):
         results_list = []
         map_uuid = self._identify_uuid('maps', obj)
         info_map = self.get_map_info(map_uuid)
         if info_map:
-            if short:
-                print('Hash map: name=%s uuid=%s slots=%d blocks=%d'%(
-                    info_map['name'], info_map['uuid'],
-                    info_map['slots'], info_map['blocks']
-                ))
-            else:
-                print('Hash map {%s} info:'%(info_map['uuid']))
-                print('\nGeneral:')
-                print('{0:12s}{1}'.format('Name:', info_map['name']))
-                print('{0:12s}{1}'.format('UUID:', info_map['uuid']))
-                print('\nOptions:')
-                print('{0:12s}{1:6s}'.format(
-                    'Map size:', 'Type %d (%d Slots)'%(
-                            info_map['size'], info_map['slots'])))
-                print('{0:12s}{1}'.format('Blocks:', info_map['blocks']))
-                #Todo summary etc slots to block, min block size, max block size
-                # print('\nSummary:')
-
+            self._maps_print([info_map], short)
             return True
         else:
             self.redice_errors.error_reg(
@@ -444,6 +455,18 @@ class RedIce():
                 'Map info not assigned to %s'%(
                     obj))
             return False
+
+
+    def maps_list(self, short=False):
+        maps_list = []
+        for map_uuid in self._get_all_maps_uuids():
+            info_map = self.get_map_info(map_uuid)
+            maps_list.append(map_uuid)
+
+        if maps_list:
+            self._maps_print(maps_list, short)
+            return True
+        return False
 
 
     def _test(self):
