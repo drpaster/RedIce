@@ -1,4 +1,5 @@
 import uuid
+from hashlib import md5
 import json
 # import time
 
@@ -45,6 +46,24 @@ class RedIce():
                     ids_type.upper(), ids_value, errmsg[expect], ids_class))
             return False
 
+
+
+    def _hash_is_has(self, key, val, expect=False):
+        errmsg = {
+            False: 'already in use for other',
+            True: 'not found for'
+            }
+
+        result_check = self.redis_conn.hexists(key, val)
+
+        if expect is result_check:
+            return True
+        else:
+            self.redice_errors.error_reg(
+                'HashIsHas',
+                '%s -> %s: %s'%(
+                    key, val, errmsg[expect]))
+            return False
 
     def _get_uuid_by_name(self, ids_class, name):
         #To Do get uuid from Redis
@@ -223,6 +242,11 @@ class RedIce():
 
         pipe = self.redis_conn.pipeline()
         shard_num = 1
+        session_uuid = str(uuid.uuid4())
+
+        md5_block = md5(str('%s%d%s'%(
+            map_name, shard_num, session_uuid)).encode('utf-8')).hexdigest()
+
         avr_block = max_slots / map_blocks
 
         if avr_block - int(avr_block) == 0:
@@ -237,6 +261,8 @@ class RedIce():
                 shard_num += 1
                 if shard_num > map_blocks:
                     shard_num = map_blocks
+                md5_block = md5(str('%s%d%s'%(
+                    map_name, shard_num, session_uuid)).encode('utf-8')).hexdigest()
                 if _div:
                     try:
                         _avr = (max_slots-slot) / ((map_blocks-shard_num)+1)
@@ -250,16 +276,21 @@ class RedIce():
                     block_size = int(avr_block)
             block_size -= 1
 
-            print(slot, hex(slot), shard_num, (slot % int(max_slots / map_blocks)))
+            # DEBUG
+            print(slot, hex(slot), map_name, shard_num, md5_block, (slot % int(max_slots / map_blocks)))
 
             cur_hash = hex(slot)
             pipe.hset(
                 '%s:maps:%s:hashsmaps'%(self._get_cluster_name(), map_name),
                 cur_hash,
-                shard_num)
+                md5_block)
             pipe.rpush(
-                '%s:maps:%s:blocks:%d'%(self._get_cluster_name(), map_name, shard_num),
+                '%s:maps:%s:blocks:%s'%(self._get_cluster_name(), map_name, md5_block),
                 cur_hash
+            )
+            pipe.set(
+                '%s:registry:blocks:md5:%s'%(self._get_cluster_name(), md5_block),
+                map_name
             )
         pipe.set(
             '%s:registry:maps:uuid:%s'%(self._get_cluster_name(), map_uuid),
@@ -337,9 +368,14 @@ class RedIce():
                     '%s:maps:%s:blocks:*'%(self._get_cluster_name(), meta_info['name'])):
                     pipe.rename(
                         sh_num,
-                        '%s:maps:%s:blocks:%d'%(self._get_cluster_name(),
+                        '%s:maps:%s:blocks:%s'%(self._get_cluster_name(),
                                                 map_name,
-                                                int(sh_num.split(':')[4])))
+                                                sh_num.split(':')[4]))
+                    pipe.set(
+                        '%s:registry:blocks:md5:%s'%(
+                            self._get_cluster_name(),
+                            sh_num.split(':')[4]),
+                        map_name)
 
                 meta_info['name'] = map_name
 
@@ -389,7 +425,10 @@ class RedIce():
             for sh_num in self.get_keys_for_q(
                 '%s:maps:%s:blocks:*'%(self._get_cluster_name(), meta_info['name'])):
                 pipe.delete(sh_num)
-
+                pipe.delete(
+                    '%s:registry:blocks:md5:%s'%(
+                        self._get_cluster_name(),
+                        sh_num.split(':')[4]))
 
             pipe.delete(
                 '%s:registry:maps:name:%s'%(self._get_cluster_name(),
@@ -467,6 +506,99 @@ class RedIce():
             self._maps_print(maps_list, short)
             return True
         return False
+
+
+    def add_shard(self, shard_name, block_md5, shard_group, shard_uuid):
+        results_list = []
+
+        shard_name = shard_name.lower()
+
+        if not shard_group:
+            shard_group = 'main'
+        shard_group = shard_group.lower()
+
+        if shard_uuid is None:
+            shard_uuid=str(uuid.uuid4())
+
+
+        # check uuid unique
+        results_list.append(self._key_is_has('shards', 'uuid', shard_uuid))
+
+        # check name unique
+        results_list.append(self._key_is_has('shards', 'name', shard_name))
+
+        # check block_md5 for exists
+        if block_md5:
+            results_list.append(self._key_is_has(
+                'blocks', 'md5', block_md5, expect=True))
+
+        print(results_list)
+        # check block for already use
+        results_list.append(self._hash_is_has(
+            '%s:registry:blocks'%(self._get_cluster_name()),
+            block_md5, expect=False))
+
+        if False in results_list:
+            return False
+
+        shard_meta = {
+            'name': shard_name,
+            'group': shard_group,
+            'block': block_md5,
+            'uuid':shard_uuid,
+            'nodes': []
+            }
+
+        pipe = self.redis_conn.pipeline()
+
+        pipe.rpush(
+            '%s:shards:%s'%(self._get_cluster_name(), shard_group),
+            shard_name
+        )
+
+        pipe.set(
+            '%s:registry:shards:uuid:%s'%(self._get_cluster_name(), shard_uuid),
+            json.dumps(shard_meta)
+        )
+
+        pipe.set(
+            '%s:registry:shards:name:%s'%(self._get_cluster_name(), shard_name),
+            shard_uuid
+        )
+
+        if block_md5:
+            pipe.hset(
+                '%s:registry:blocks'%(self._get_cluster_name()),
+                block_md5,
+                shard_uuid)
+
+        try:
+            q_res = pipe.execute()
+            if False in q_res:
+                self.redice_errors.error_reg(
+                    'AddShard',
+                    'Add shard transaction not completed: %s'%(q_res))
+                return False
+            else:
+                return True
+
+        except Exception as e:
+            self.redice_errors.error_reg(
+                'AddShard',
+                'Add shard transaction error: %s'%(e))
+
+        return False
+
+
+    def modify_shard(self, obj, shard_name, shard_group):
+        print('Modify %s SHARD: name=%s, group=%s'%(
+            obj, shard_name, shard_group
+        ))
+
+    def delete_shard(self, obj):
+        print('DEL %s SHARD'%(
+            obj
+        ))
 
 
     def _test(self):

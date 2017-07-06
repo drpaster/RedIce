@@ -122,7 +122,23 @@ def router(args_obj):
             'action': RS.info_map,
             'err': RS.get_errors,
             'args': []
-            }
+            },
+        'shard_add': {
+            'action': RS.add_shard,
+            'err': RS.get_errors,
+            'args': []
+            },
+        'shard_modify': {
+            'action': RS.modify_shard,
+            'err': RS.get_errors,
+            'args': []
+            },
+        'shard_delete': {
+            'action': RS.delete_shard,
+            'err': RS.get_errors,
+            'args': []
+            },
+
 
     }
     route = '%s_%s'%(args_obj.cmd, args_obj.subcmd)
@@ -162,6 +178,13 @@ def router(args_obj):
         Routes[route]['args'] = [args_obj.toobj]
     elif route == 'map_info':
         Routes[route]['args'] = [args_obj.toobj, args_obj.short]
+    elif route == 'shard_add':
+        Routes[route]['args'] = [args_obj.name, args_obj.block, args_obj.group, args_obj.uuid]
+    elif route == 'shard_modify':
+        Routes[route]['args'] = [args_obj.toobj, args_obj.name, args_obj.group]
+    elif route == 'shard_delete':
+        Routes[route]['args'] = [args_obj.toobj]
+
 
     # Run command
     if not Routes[route]['action'](*Routes[route]['args']):
@@ -397,13 +420,13 @@ def run():
         action='store', required=True,
         help='')
     commands['shard_commands_add'].add_argument(
-        '--group', metavar='<group-name>',
+        '--block', metavar='<block-md5>',
         action='store',
         help='')
     commands['shard_commands_add'].add_argument(
-        '--root',
-        action='store_true',
-        help='Add shard to current root (default)')
+        '--group', metavar='<group-name>',
+        action='store',
+        help='')
     commands['shard_commands_add'].add_argument(
         '--uuid', metavar='<shard-uuid>',
         action='store',
@@ -415,7 +438,6 @@ def run():
         'toobj', metavar='<shard-uuid>|<shard-name>',
         action='store',
         help='')
-
     commands['shard_commands_modify'].add_argument(
         '--name', metavar='<shard-name>',
         action='store',
