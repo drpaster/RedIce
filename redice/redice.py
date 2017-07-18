@@ -13,7 +13,7 @@ from redis.sentinel import Sentinel, MasterNotFoundError
 class RedIce():
     """docstring for ."""
     def __init__(self):
-        self.SOCK_TIMEOUT = 0.1
+        self.SOCK_TIMEOUT = 0.3
 
         self.redice_errors = RedIceErrors()
         self.redice_shared = RedIceShared(self.redice_errors)
@@ -137,6 +137,11 @@ class RedIce():
             maps_list.append(
                 self.get_map_info(self.redis_conn.get(sh_map).decode('utf-8')))
         return maps_list
+
+    def _remove_empty_list(self, key):
+        if self.redis_conn.exists(key):
+            if int(self.redis_conn.llen(key)) == 0:
+                self.redis_conn.delete(key)
 
     def get_shard_map(self, map_name):
         r = {}
@@ -480,6 +485,8 @@ class RedIce():
                             info_map['size'], info_map['slots'])))
                 print('{0:4s}{1:12s}{2}'.format('', 'Blocks:', info_map['blocks']))
 
+    def _blocks_print(self, blocks_list):
+        pass
 
     def info_map(self, obj, short=False):
         results_list = []
@@ -574,6 +581,7 @@ class RedIce():
 
         try:
             q_res = pipe.execute()
+            print('TRANSACTION RES: ', q_res)
             if False in q_res:
                 self.redice_errors.error_reg(
                     'AddShard',
@@ -590,15 +598,226 @@ class RedIce():
         return False
 
 
-    def modify_shard(self, obj, shard_name, shard_group):
-        print('Modify %s SHARD: name=%s, group=%s'%(
-            obj, shard_name, shard_group
-        ))
+    def modify_shard(self, obj, block_md5, shard_name, shard_group):
+        results_list = []
+        shard_uuid = self._identify_uuid('shards', obj)
+
+        if not shard_uuid:
+            return False
+        # Check new values
+        if not True in [bool(shard_name), bool(shard_group), bool(block_md5)]:
+            self.redice_errors.error_reg(
+                'ModifyShard',
+                'Not specified what to change in shard: %s'%(
+                    obj))
+            return False
+
+        meta_info = self._get_meta_by_uuid('shards', shard_uuid)
+
+
+        results_list.append(bool(meta_info))
+
+        to_change = {
+            'name': False,
+            'group': False,
+            'block': False
+        }
+
+        if bool(shard_name):
+            shard_name = shard_name.lower()
+        else:
+            shard_name = meta_info['name']
+
+        if bool(shard_group):
+            shard_group = shard_group.lower()
+        else:
+            shard_group = meta_info['group']
+
+        if bool(block_md5):
+            block_md5 = block_md5.lower()
+        else:
+            block_md5 = meta_info['block']
+
+
+        if bool(shard_name) and meta_info['name'] != shard_name:
+            res_valid = self.redice_shared.name_validate(shard_name)
+            results_list.append(res_valid)
+            if res_valid:
+                to_change['name'] = True
+                results_list.append(
+                    self._key_is_has(
+                        'shards', 'name', shard_name, expect=False))
+
+        if bool(shard_group) and meta_info['group'] != shard_group:
+            to_change['group'] = True
+            results_list.append(self.redice_shared.name_validate(shard_group))
+
+        if bool(block_md5) and meta_info['block'] != block_md5:
+            res_valid = self.redice_shared.name_validate(block_md5)
+            results_list.append(res_valid)
+            if res_valid:
+                to_change['block'] = True
+                results_list.append(
+                    self._key_is_has(
+                        'blocks', 'md5', block_md5, expect=True))
+                results_list.append(
+                    self._hash_is_has(
+                        '%s:registry:blocks'%(self._get_cluster_name()),
+                        block_md5,
+                        expect=False
+                    )
+                )
+
+
+        if False in results_list:
+            return False
+
+        if not True in [to_change['group'], to_change['name'], to_change['block']]:
+            return False
+
+        pipe = self.redis_conn.pipeline()
+
+        if to_change['group'] or to_change['name']:
+
+            #Remove shard name from group list
+            pipe.lrem(
+                '%s:shards:%s'%(self._get_cluster_name(), meta_info['group']),
+                0,
+                meta_info['name']
+            )
+
+            # Add new shard group anf name
+            pipe.rpush(
+                '%s:shards:%s'%(self._get_cluster_name(), shard_group),
+                shard_name
+            )
+
+            if to_change['name']:
+                pipe.rename(
+                    '%s:registry:shards:name:%s'%(self._get_cluster_name(),
+                                                  meta_info['name']),
+                    '%s:registry:shards:name:%s'%(self._get_cluster_name(), shard_name))
+
+        if to_change['block']:
+            pipe.hdel(
+                '%s:registry:blocks'%(self._get_cluster_name()),
+                meta_info['block'])
+            pipe.hset(
+                '%s:registry:blocks'%(self._get_cluster_name()),
+                block_md5,
+                shard_uuid)
+
+        meta_info['group'] = shard_group
+        meta_info['name'] = shard_name
+        meta_info['block'] = block_md5
+
+        pipe.set(
+            '%s:registry:shards:uuid:%s'%(self._get_cluster_name(), shard_uuid),
+            json.dumps(meta_info))
+
+        try:
+            print('BEGIN TR: ')
+            rrr = pipe.execute()
+            print('TR: ', rrr)
+            # ToDo check all results or use LUA
+            # q_res = pipe.execute()
+            # if False in q_res:
+            #     self.redice_errors.error_reg(
+            #         'ModifyShard',
+            #         'Modify shard transaction not completed: %s'%(q_res))
+            #     return False
+            # else:
+            #   return True
+            if to_change['group']:
+                self._remove_empty_list(
+                    '%s:shards:%s'%(self._get_cluster_name(), meta_info['group']))
+            return True
+
+        except Exception as e:
+            self.redice_errors.error_reg(
+                'ModifyShard',
+                'Modify shard transaction error: %s'%(e))
+
+        return False
+
+    def release_shard(self, obj):
+        results_list = []
+
+        shard_uuid = self._identify_uuid('shards', obj)
+        if not shard_uuid:
+            return False
+
+        meta_info = self._get_meta_by_uuid('shards', shard_uuid)
+        results_list.append(bool(meta_info))
+
+        if False in results_list:
+            return False
+
+        pipe = self.redis_conn.pipeline()
+        pipe.hdel(
+            '%s:registry:blocks'%(self._get_cluster_name()),
+            meta_info['block'])
+
+        meta_info['block'] = None
+
+        pipe.set(
+            '%s:registry:shards:uuid:%s'%(self._get_cluster_name(), shard_uuid),
+            json.dumps(meta_info))
+
+        try:
+            pipe.execute()
+            return True
+        except Exception as e:
+            self.redice_errors.error_reg(
+                'ReleaseShard',
+                'Release shard transaction error: %s'%(e))
+
+        return False
+
+
 
     def delete_shard(self, obj):
-        print('DEL %s SHARD'%(
-            obj
-        ))
+        results_list = []
+
+        shard_uuid = self._identify_uuid('shards', obj)
+        if not shard_uuid:
+            return False
+
+        meta_info = self._get_meta_by_uuid('shards', shard_uuid)
+        results_list.append(bool(meta_info))
+
+        if False in results_list:
+            return False
+
+        pipe = self.redis_conn.pipeline()
+        pipe.hdel(
+            '%s:registry:blocks'%(self._get_cluster_name()),
+            meta_info['block'])
+        pipe.lrem(
+            '%s:shards:%s'%(self._get_cluster_name(), meta_info['group']),
+            0,
+            meta_info['name']
+        )
+        pipe.delete(
+            '%s:registry:shards:name:%s'%(
+                self._get_cluster_name(), meta_info['name'])
+        )
+        pipe.delete(
+            '%s:registry:shards:uuid:%s'%(
+                self._get_cluster_name(), shard_uuid)
+        )
+        try:
+            pipe.execute()
+            self._remove_empty_list(
+                '%s:shards:%s'%(self._get_cluster_name(), meta_info['group']))
+            return True
+        except Exception as e:
+            self.redice_errors.error_reg(
+                'DeleteShard',
+                'Delete shard transaction error: %s'%(e))
+
+        return False
+
 
 
     def _test(self):

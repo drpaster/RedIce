@@ -133,13 +133,16 @@ def router(args_obj):
             'err': RS.get_errors,
             'args': []
             },
+        'shard_release': {
+            'action': RS.release_shard,
+            'err': RS.get_errors,
+            'args': []
+            },
         'shard_delete': {
             'action': RS.delete_shard,
             'err': RS.get_errors,
             'args': []
-            },
-
-
+            }
     }
     route = '%s_%s'%(args_obj.cmd, args_obj.subcmd)
 
@@ -181,7 +184,9 @@ def router(args_obj):
     elif route == 'shard_add':
         Routes[route]['args'] = [args_obj.name, args_obj.block, args_obj.group, args_obj.uuid]
     elif route == 'shard_modify':
-        Routes[route]['args'] = [args_obj.toobj, args_obj.name, args_obj.group]
+        Routes[route]['args'] = [args_obj.toobj, args_obj.block, args_obj.name, args_obj.group]
+    elif route == 'shard_release':
+        Routes[route]['args'] = [args_obj.toobj]
     elif route == 'shard_delete':
         Routes[route]['args'] = [args_obj.toobj]
 
@@ -443,6 +448,10 @@ def run():
         action='store',
         help='')
     commands['shard_commands_modify'].add_argument(
+        '--block', metavar='<block-md5>',
+        action='store',
+        help='')
+    commands['shard_commands_modify'].add_argument(
         '--group', metavar='<group-uuid>|<group-name>',
         action='store',
         help='')
@@ -509,6 +518,12 @@ def run():
         action='store',
         help='Remove server')
 
+    commands['shard_commands_release'] = commands['shard_commands'].add_parser(
+        'release', help='')
+    commands['shard_commands_release'].add_argument(
+        'toobj', metavar='<shard-uuid>|<shard-name>',
+        action='store',
+        help='Release block from this shard')
 
     commands['shard_commands_delete'] = commands['shard_commands'].add_parser(
         'delete', help='')
