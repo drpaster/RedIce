@@ -63,6 +63,11 @@ def router(args_obj):
             'err': RS.get_errors,
             'args': []
             },
+        'list_shards': {
+            'action': RS.shards_list,
+            'err': RS.get_errors,
+            'args': []
+            },
         'root_reg': {
             'action': RR.reg_root,
             'err': RR.get_errors,
@@ -142,14 +147,21 @@ def router(args_obj):
             'action': RS.delete_shard,
             'err': RS.get_errors,
             'args': []
+            },
+        'shard_info': {
+            'action': RS.info_shard,
+            'err': RS.get_errors,
+            'args': []
             }
     }
     route = '%s_%s'%(args_obj.cmd, args_obj.subcmd)
 
     if route == 'list_roots':
         Routes[route]['args'] = [args_obj.short]
-    if route == 'list_maps':
+    elif route == 'list_maps':
         Routes[route]['args'] = [args_obj.short]
+    elif route == 'list_shards':
+        Routes[route]['args'] = [args_obj.group_by, args_obj.short]
     elif route == 'root_reg':
         Routes[route]['args'] = [
             args_obj.name, args_obj.file, args_obj.default, args_obj.uuid]
@@ -189,7 +201,8 @@ def router(args_obj):
         Routes[route]['args'] = [args_obj.toobj]
     elif route == 'shard_delete':
         Routes[route]['args'] = [args_obj.toobj]
-
+    elif route == 'shard_info':
+        Routes[route]['args'] = [args_obj.toobj, args_obj.short]
 
     # Run command
     if not Routes[route]['action'](*Routes[route]['args']):
@@ -243,6 +256,13 @@ def run():
         'roots', help='')
     commands['list_commands_maps'] = commands['list_commands'].add_parser(
         'maps', help='')
+    commands['list_commands_shards'] = commands['list_commands'].add_parser(
+        'shards', help='')
+
+    commands['list_commands_shards'].add_argument(
+        '--group-by', metavar='<map|group>',
+        choices=['map', 'group'], default='group',
+        help='Set group shards list')
 
     # commands['list_commands'].add_argument('-s', '--short', action='store_true', help='')
     # commands['list'].add_argument(
@@ -532,6 +552,14 @@ def run():
         action='store',
         help='Delete shard')
 
+    commands['shard_commands_info'] = commands['shard_commands'].add_parser(
+        'info', help='')
+    commands['shard_commands_info'].add_argument(
+        'toobj', metavar='<shard-uuid>|<shard-name>',
+        action='store',
+        help='Get shard info')
+    commands['shard_commands_info'].add_argument(
+        '-s', '--short', action='store_true', help='')
 
     redice_args = parser.parse_args()
     #list_args = commands['list'].parse_args()

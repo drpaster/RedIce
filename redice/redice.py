@@ -13,7 +13,7 @@ from redis.sentinel import Sentinel, MasterNotFoundError
 class RedIce():
     """docstring for ."""
     def __init__(self):
-        self.SOCK_TIMEOUT = 0.3
+        self.SOCK_TIMEOUT = 1
 
         self.redice_errors = RedIceErrors()
         self.redice_shared = RedIceShared(self.redice_errors)
@@ -45,7 +45,6 @@ class RedIce():
                 '%s %s %s %s'%(
                     ids_type.upper(), ids_value, errmsg[expect], ids_class))
             return False
-
 
 
     def _hash_is_has(self, key, val, expect=False):
@@ -93,7 +92,6 @@ class RedIce():
             '%s:registry:%s:uuid:%s'%(
                 self._get_cluster_name(), ids_class, uuid
             ))
-
         if not meta:
             self.redice_errors.error_reg(
                 'GetMetaByUUID',
@@ -102,6 +100,20 @@ class RedIce():
             return None
         return json.loads(meta.decode('utf-8'))
 
+    def _get_keys_for(self, q_str, seg_index=-1):
+        vals = []
+        keys = self.redis_conn.keys(q_str)
+        if keys:
+            for k in keys:
+                k = k.decode('utf-8')
+                if seg_index > -1:
+                    v = k.split(':')[seg_index]
+                else:
+                    v = k
+                vals.append(v)
+            return vals
+        else:
+            return None
 
     def _identify_uuid(self, ids_class, ids_value):
         ids_type = self.redice_shared.uuid4_or_name(ids_value)
@@ -130,13 +142,29 @@ class RedIce():
                 'RedisConnection: %s'%(e))
         return True
 
-    def _get_all_maps_uuids(self):
-        maps_list = []
-        for sh_map in self.get_keys_for_q(
-            '%s:registry:maps:name:*'%(self._get_cluster_name())):
-            maps_list.append(
-                self.get_map_info(self.redis_conn.get(sh_map).decode('utf-8')))
-        return maps_list
+    def _get_all_uuids(self, class_ids):
+        r = []
+        for v in self._get_keys_for(
+            '%s:registry:%s:uuid:*'%(
+                self._get_cluster_name(), class_ids), seg_index=4):
+            r.append(v)
+        return r
+
+    # def _get_all_maps_uuids(self):
+    #     r = []
+    #     for v in self._get_keys_for(
+    #         '%s:registry:maps:name:*'%(
+    #             self._get_cluster_name()), seg_index=4):
+    #         maps_list.append(v)
+    #     return r
+
+    # def _get_all_shards_uuids(self):
+    #     shards_list = []
+    #     for shard_key in self.get_keys_for_q(
+    #         '%s:registry:shards:name:*'%(self._get_cluster_name())):
+    #         shards_list.append(
+    #             self.get_shard_info(self.redis_conn.get(shard_key).decode('utf-8')))
+    #     return maps_list
 
     def _remove_empty_list(self, key):
         if self.redis_conn.exists(key):
@@ -154,22 +182,22 @@ class RedIce():
         else:
             return None
 
-    #API
-    def get_map_info(self, map_uuid):
-        results_list = []
-        meta_info = self._get_meta_by_uuid('maps', map_uuid)
-        return meta_info
+    #API????? dubles self._get_meta_by_uuid
+    # def get_map_info(self, map_uuid):
+    #     results_list = []
+    #     meta_info = self._get_meta_by_uuid('maps', map_uuid)
+    #     return meta_info
 
 
-    def get_keys_for_q(self, q_str):
-        keys = []
-        res = self.redis_conn.keys(q_str)
-        if res:
-            for k in res:
-                keys.append(k.decode('utf-8'))
-            return keys
-        else:
-            return None
+    # def get_keys_for_q(self, q_str):
+    #     keys = []
+    #     res = self.redis_conn.keys(q_str)
+    #     if res:
+    #         for k in res:
+    #             keys.append(k.decode('utf-8'))
+    #         return keys
+    #     else:
+    #         return None
 
     def get_errors(self):
         return self.redice_errors.get_errors()
@@ -369,8 +397,9 @@ class RedIce():
                                                 meta_info['name']),
                     '%s:registry:maps:name:%s'%(self._get_cluster_name(), map_name))
 
-                for sh_num in self.get_keys_for_q(
-                    '%s:maps:%s:blocks:*'%(self._get_cluster_name(), meta_info['name'])):
+                for sh_num in self._get_keys_for(
+                    '%s:maps:%s:blocks:*'%(
+                        self._get_cluster_name(), meta_info['name'])):
                     pipe.rename(
                         sh_num,
                         '%s:maps:%s:blocks:%s'%(self._get_cluster_name(),
@@ -427,8 +456,9 @@ class RedIce():
                 '%s:maps:%s:hashsmaps'%(
                     self._get_cluster_name(), meta_info['name']))
 
-            for sh_num in self.get_keys_for_q(
-                '%s:maps:%s:blocks:*'%(self._get_cluster_name(), meta_info['name'])):
+            for sh_num in self._get_keys_for(
+                '%s:maps:%s:blocks:*'%(
+                    self._get_cluster_name(), meta_info['name'])):
                 pipe.delete(sh_num)
                 pipe.delete(
                     '%s:registry:blocks:md5:%s'%(
@@ -461,6 +491,38 @@ class RedIce():
 
         return False
 
+    def blocks_list(self, map_uuid):
+        blocks_list = []
+        meta_info = self._get_meta_by_uuid('maps', map_uuid)
+        for key_block in self._get_keys_for(
+            '%s:maps:%s:blocks:*'%(
+                self._get_cluster_name(), meta_info['name'])):
+            md5_block = key_block.split(':')[4]
+            cur_shard = self.redis_conn.hget(
+                '%s:registry:blocks'%(self._get_cluster_name()),
+                md5_block)
+            if not cur_shard:
+                cur_shard = 'not assigned'
+            else:
+                cur_shard = cur_shard.decode('utf-8')
+            blocks_list.append({
+                'id': md5_block,
+                'shard': cur_shard,
+                'slots': int(self.redis_conn.llen(key_block))
+            })
+        return blocks_list
+
+    def _blocks_print(self, blocks_list):
+        if not blocks_list:
+            print('Error! This map without blocks')
+        i = 0
+        for block in blocks_list:
+            i += 1
+            print('{0:4s} {1}'.format(
+                '', '%d. %d slots of %s -> %s'%(
+                    i, block['slots'], block['id'], block['shard'])))
+
+
     def _maps_print(self, maps_list, short):
         if not maps_list:
             print('No registered maps for %s'%(self._get_cluster_name()))
@@ -484,14 +546,58 @@ class RedIce():
                     '', 'Map size:', 'Type %d (%d Slots)'%(
                             info_map['size'], info_map['slots'])))
                 print('{0:4s}{1:12s}{2}'.format('', 'Blocks:', info_map['blocks']))
+                print('\n{0:3s}Blocks to Shards:'.format(''))
+                self._blocks_print(self.blocks_list(info_map['uuid']))
 
-    def _blocks_print(self, blocks_list):
-        pass
+    def _shards_print(self, shards, group_by, short):
+        # print('shards_list: ', shards)
+        if not shards:
+            print('No registered shards for %s'%(self._get_cluster_name()))
+        i = 0
+        print('Shards list of {%s} cluster group by {%s}'%(
+            self._get_cluster_name(), group_by))
+        for k, v in shards.items():
+            print('\n\n')
+            print('{0:{fill}{align}80}'.format(
+                ' %s '%(k.upper()), fill='-', align='^'))
+            for info_shard in v:
+                i+=1
+                if short:
+                    print('{0:1s} {1:3s} {2:12s} {3}'.format(
+                        '',
+                        '%d.'%(i),
+                        info_shard['name'],
+                        '%s -> %s'%(info_shard['uuid'],info_shard['block'])
+                    ))
+                else:
+                    print('\n\n{0:1s} {1:3s} {2:12s}'.format(
+                        '',
+                        '%d.'%(i),
+                        info_shard['name']
+                    ))
+                    print('{0:3s}General:'.format(''))
+                    print('{0:4s}{1:12s}{2}'.format('', 'Name:', info_shard['name']))
+                    print('{0:4s}{1:12s}{2}'.format('', 'UUID:', info_shard['uuid']))
+                    print('{0:4s}{1:12s}{2}'.format('', 'Assigned:', info_shard['block']))
+                    if info_shard['block']:
+                        print('{0:4s}{1:12s}{2}'.format('', 'Slots:', len(info_shard['slot-list'])))
+                        print('{0:3s}Slots list:'.format(''))
+                        l = 5
+                        for slot in info_shard['slot-list']:
+                            l-=1
+                            slot_num = int(slot.decode('utf-8'), 0)
+                            print('{0:10s}'.format(
+                                '{0:10d}{1:#6x}'.format(slot_num, slot_num)), end=' ')
+                            if l <= 0:
+                                l = 5
+                                print()
+                    print()
+
 
     def info_map(self, obj, short=False):
         results_list = []
         map_uuid = self._identify_uuid('maps', obj)
-        info_map = self.get_map_info(map_uuid)
+        info_map = self._get_meta_by_uuid('maps', map_uuid)
         if info_map:
             self._maps_print([info_map], short)
             return True
@@ -505,15 +611,45 @@ class RedIce():
 
     def maps_list(self, short=False):
         maps_list = []
-        for map_uuid in self._get_all_maps_uuids():
-            info_map = self.get_map_info(map_uuid)
-            maps_list.append(map_uuid)
+        for map_uuid in self._get_all_uuids('maps'):
+            info = self._get_meta_by_uuid('maps', map_uuid)
+            maps_list.append(info)
 
         if maps_list:
             self._maps_print(maps_list, short)
             return True
         return False
 
+    def get_shards_info(self, shard_uuid):
+        info = self._get_meta_by_uuid('shards', shard_uuid)
+        map_name = self.redis_conn.get(
+            '%s:registry:blocks:md5:%s'%(
+                self._get_cluster_name(),
+                info['block']))
+        if map_name:
+            # Additional meta info
+            info['map'] = map_name.decode('utf-8')
+            info['slot-list'] = self.redis_conn.lrange(
+                '%s:maps:%s:blocks:%s'%(
+                    self._get_cluster_name(),
+                    info['map'],
+                    info['block']), 0, -1)
+        else:
+            info['map'] = 'not assigned'
+        return info
+
+    def shards_list(self, group_by, short=False):
+        shards = {}
+        for shard_uuid in self._get_all_uuids('shards'):
+            info = self.get_shards_info(shard_uuid)
+            if not info[group_by] in shards:
+                shards[info[group_by]] = []
+            shards[info[group_by]].append(info)
+
+        if shards:
+            self._shards_print(shards, group_by, short)
+            return True
+        return False
 
     def add_shard(self, shard_name, block_md5, shard_group, shard_uuid):
         results_list = []
@@ -818,7 +954,20 @@ class RedIce():
 
         return False
 
-
+    def info_shard(self, obj, short=False):
+        results_list = []
+        shard_uuid = self._identify_uuid('shards', obj)
+        info_shard = self.get_shards_info(shard_uuid)
+        if info_shard:
+            self._shards_print(
+                {info_shard['group']: [info_shard]}, 'group', short)
+            return True
+        else:
+            self.redice_errors.error_reg(
+                'ShardInfo',
+                'Shard info not assigned to %s'%(
+                    obj))
+            return False
 
     def _test(self):
         import time
